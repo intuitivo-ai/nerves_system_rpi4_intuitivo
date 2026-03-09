@@ -101,6 +101,9 @@ defmodule NervesSystemRpi4Intuitivo.MixProject do
     [
       "fwup_include",
       "rootfs_overlay",
+      "package",
+      "Config.in",
+      "external.mk",
       "CHANGELOG.md",
       "cmdline.txt",
       "config.txt",

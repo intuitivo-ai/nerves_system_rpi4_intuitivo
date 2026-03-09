@@ -1,0 +1,95 @@
+#!/bin/sh
+# systemctl shim for greengrass-lite on Nerves (no real systemd).
+# Handles the subset of systemctl commands that greengrass-lite uses:
+#   systemctl link <abs-path-to-unit>     -> symlink into unit dir
+#   systemctl start [--no-block] <unit>   -> parse ExecStart and run
+#   systemctl stop <unit>                 -> kill matching processes
+#   systemctl enable|disable|daemon-reload|reset-failed -> no-op
+
+UNIT_DIR="/tmp/systemd-units"
+mkdir -p "$UNIT_DIR"
+
+# Strip --no-block if present (greengrass-lite passes it to start)
+ARGS=""
+NO_BLOCK=0
+CMD=""
+for arg in "$@"; do
+    case "$arg" in
+        --no-block) NO_BLOCK=1 ;;
+        *)
+            if [ -z "$CMD" ]; then
+                CMD="$arg"
+            else
+                ARGS="$ARGS $arg"
+            fi
+            ;;
+    esac
+done
+ARGS=$(echo "$ARGS" | sed 's/^ //')
+
+case "$CMD" in
+    link)
+        # systemctl link /absolute/path/to/ggl.component.install.service
+        SRC_PATH="$ARGS"
+        if [ -f "$SRC_PATH" ]; then
+            BASENAME=$(basename "$SRC_PATH")
+            ln -sf "$SRC_PATH" "$UNIT_DIR/$BASENAME"
+        fi
+        ;;
+    start)
+        UNIT="$ARGS"
+        # Resolve the unit file: check linked units first, then common dirs
+        UNIT_FILE=""
+        if [ -f "$UNIT_DIR/$UNIT" ]; then
+            # Dereference symlink from `systemctl link`
+            UNIT_FILE=$(readlink -f "$UNIT_DIR/$UNIT")
+        fi
+        if [ -z "$UNIT_FILE" ] || [ ! -f "$UNIT_FILE" ]; then
+            for d in /home/ggc_user /var/lib/greengrass /usr/lib/systemd/system /lib/systemd/system; do
+                if [ -f "$d/$UNIT" ]; then
+                    UNIT_FILE="$d/$UNIT"
+                    break
+                fi
+            done
+        fi
+        if [ -z "$UNIT_FILE" ] || [ ! -f "$UNIT_FILE" ]; then
+            echo "systemctl-shim: unit file $UNIT not found" >&2
+            exit 1
+        fi
+
+        EXEC_LINE=$(grep '^ExecStart=' "$UNIT_FILE" | head -1 | sed 's/^ExecStart=//')
+        if [ -z "$EXEC_LINE" ]; then
+            echo "systemctl-shim: no ExecStart in $UNIT_FILE" >&2
+            exit 1
+        fi
+
+        case "$UNIT" in
+            ggl.*.install.service|ggl.*.bootstrap.service)
+                # One-shot install/bootstrap: run synchronously (recipe-runner -> fwup)
+                /bin/sh -c "$EXEC_LINE"
+                ;;
+            *)
+                # Long-running services: run in background
+                /bin/sh -c "$EXEC_LINE" &
+                ;;
+        esac
+        ;;
+    stop)
+        UNIT="$ARGS"
+        case "$UNIT" in
+            ggl.*.service)
+                COMPONENT=$(echo "$UNIT" | sed 's/^ggl\.//;s/\.\(install\|bootstrap\|run_startup\)\.service$//;s/\.service$//')
+                PIDS=$(ps | grep "recipe-runner.*$COMPONENT" | grep -v grep | awk '{print $1}')
+                for PID in $PIDS; do
+                    kill "$PID" 2>/dev/null
+                done
+                ;;
+        esac
+        ;;
+    enable|disable|daemon-reload|reset-failed)
+        ;;
+    *)
+        ;;
+esac
+
+exit 0

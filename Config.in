@@ -1,0 +1,2 @@
+source "$NERVES_DEFCONFIG_DIR/package/libsystemd-stub/Config.in"
+source "$NERVES_DEFCONFIG_DIR/package/greengrass-lite/Config.in"

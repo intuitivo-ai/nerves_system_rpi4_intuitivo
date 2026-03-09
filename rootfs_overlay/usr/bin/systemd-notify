@@ -1,0 +1,3 @@
+#!/bin/sh
+# systemd-notify shim: no-op on Nerves (no systemd).
+exit 0

@@ -1,0 +1,3 @@
+#!/bin/sh
+# systemd-tmpfiles shim: no-op on Nerves (no systemd).
+exit 0
