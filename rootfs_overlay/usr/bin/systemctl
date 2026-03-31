@@ -25,7 +25,10 @@ for arg in "$@"; do
             ;;
     esac
 done
-ARGS=$(echo "$ARGS" | sed 's/^ //')
+# Avoid `sed` (not always on PATH when ggdeploymentd runs system(3)).
+case "$ARGS" in
+    " "*) ARGS=${ARGS# } ;;
+esac
 
 case "$CMD" in
     link)
@@ -57,7 +60,8 @@ case "$CMD" in
             exit 1
         fi
 
-        EXEC_LINE=$(grep '^ExecStart=' "$UNIT_FILE" | head -1 | sed 's/^ExecStart=//')
+        EXEC_LINE=$(grep '^ExecStart=' "$UNIT_FILE" | head -1)
+        EXEC_LINE=${EXEC_LINE#ExecStart=}
         if [ -z "$EXEC_LINE" ]; then
             echo "systemctl-shim: no ExecStart in $UNIT_FILE" >&2
             exit 1
@@ -78,7 +82,21 @@ case "$CMD" in
         UNIT="$ARGS"
         case "$UNIT" in
             ggl.*.service)
-                COMPONENT=$(echo "$UNIT" | sed 's/^ggl\.//;s/\.\(install\|bootstrap\|run_startup\)\.service$//;s/\.service$//')
+                COMPONENT=${UNIT#ggl.}
+                case "$COMPONENT" in
+                    *.install.service)
+                        COMPONENT=${COMPONENT%.install.service}
+                        ;;
+                    *.bootstrap.service)
+                        COMPONENT=${COMPONENT%.bootstrap.service}
+                        ;;
+                    *.run_startup.service)
+                        COMPONENT=${COMPONENT%.run_startup.service}
+                        ;;
+                    *.service)
+                        COMPONENT=${COMPONENT%.service}
+                        ;;
+                esac
                 PIDS=$(ps | grep "recipe-runner.*$COMPONENT" | grep -v grep | awk '{print $1}')
                 for PID in $PIDS; do
                     kill "$PID" 2>/dev/null
