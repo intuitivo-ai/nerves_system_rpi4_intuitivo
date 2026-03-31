@@ -30,7 +30,12 @@ GREENGRASS_LITE_DEPENDENCIES = \
 # CMake IPO is patched off for cross-builds, but if TARGET_* still carry -flto,
 # object files inside static libs (e.g. libgg-sdk.a) can remain LTO bytecode; the
 # final link then reports undefined refs to gg_log / gg_* from gg-sdk.
+#
+# Buildroot sets BUILD_SHARED_LIBS=ON by default; gg-sdk then becomes libgg-sdk.so.
+# Our ggl-cli link uses -Wl,--whole-archive, which only applies to .a archives, so
+# symbols from gg-sdk were dropped and the link failed with undefined gg_* refs.
 GREENGRASS_LITE_CONF_OPTS = \
+	-DBUILD_SHARED_LIBS=OFF \
 	-DGGL_SYSTEMD_SERVICE_BUILD=OFF \
 	-DBUILD_TESTING=OFF \
 	-DBUILD_EXAMPLES=OFF \
