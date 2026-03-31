@@ -1,6 +1,6 @@
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -353,7 +353,14 @@
+@@ -349,7 +349,21 @@
      if(NOT SRCS_LEN EQUAL 0)
        target_link_libraries(${bin_name}-bin PRIVATE ${name})
      endif()
@@ -8,8 +8,15 @@
 +    set(_ggl_bin_libs ${COMP_ARG_LIBS})
 +    if("gg-sdk" IN_LIST _ggl_bin_libs)
 +      list(REMOVE_ITEM _ggl_bin_libs gg-sdk)
-+      target_link_libraries(${bin_name}-bin PRIVATE -Wl,--whole-archive gg-sdk
-+                          -Wl,--no-whole-archive ${_ggl_bin_libs})
++      target_link_libraries(
++        ${bin_name}-bin
++        PRIVATE
++        -Wl,--start-group
++        -Wl,--whole-archive
++        $<TARGET_FILE:gg-sdk>
++        -Wl,--no-whole-archive
++        ${_ggl_bin_libs}
++        -Wl,--end-group)
 +    else()
 +      target_link_libraries(${bin_name}-bin PRIVATE ${_ggl_bin_libs})
 +    endif()
