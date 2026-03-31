@@ -1,0 +1,56 @@
+diff --git a/modules/gghealthd/src/sd_bus.c b/modules/gghealthd/src/sd_bus.c
+index 7f6aee3c..f7740a41 100644
+--- a/modules/gghealthd/src/sd_bus.c
++++ b/modules/gghealthd/src/sd_bus.c
+@@ -90,6 +90,10 @@ GgError open_bus(sd_bus **bus) {
+     if (ret < 0) {
+         GG_LOGE("Unable to open default system bus (errno=%d)", -ret);
+         *bus = NULL;
++        if (ret == -ENOSYS) {
++            /* e.g. Nerves + libsystemd-stub: no systemd session/system bus */
++            return GG_ERR_UNSUPPORTED;
++        }
+         return report_connect_error();
+     }
+ 
+diff --git a/modules/gghealthd/src/subscriptions.c b/modules/gghealthd/src/subscriptions.c
+index 24654be1..4a2fb438 100644
+--- a/modules/gghealthd/src/subscriptions.c
++++ b/modules/gghealthd/src/subscriptions.c
+@@ -112,6 +112,10 @@ static int properties_changed_handler(
+ }
+ 
+ static GgError register_dbus_signal(int index) {
++    if (global_bus == NULL) {
++        GG_LOGW("D-Bus unavailable; cannot subscribe to lifecycle.");
++        return GG_ERR_UNSUPPORTED;
++    }
+     GG_LOGD("Event loop thread enabling signal for %d.", index);
+     uint8_t qualified_name_bytes[SERVICE_NAME_MAX_LEN + 1];
+     GgBuffer qualified_name = GG_BUF(qualified_name_bytes);
+@@ -179,6 +183,14 @@ void init_health_events(void) {
+         if (ret == GG_ERR_OK) {
+             break;
+         }
++        if (ret == GG_ERR_UNSUPPORTED) {
++            GG_LOGI(
++                "No systemd system bus (ENOSYS); gghealthd lifecycle D-Bus "
++                "disabled."
++            );
++            global_bus = NULL;
++            return;
++        }
+         GG_LOGE("Failed to open bus.");
+         (void) gg_sleep(1);
+     }
+@@ -261,6 +273,10 @@ GgError gghealthd_register_lifecycle_subscription(
+     component_names_len[index] = component_name.len;
+     handles[index] = handle;
+     GgError ret = register_dbus_signal(index);
++    if (ret != GG_ERR_OK) {
++        handles[index] = 0;
++        component_names_len[index] = 0;
++    }
+     return ret;
+ }
+ 
