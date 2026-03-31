@@ -1,6 +1,6 @@
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -349,7 +349,21 @@
+@@ -349,7 +349,26 @@
      if(NOT SRCS_LEN EQUAL 0)
        target_link_libraries(${bin_name}-bin PRIVATE ${name})
      endif()
@@ -8,6 +8,11 @@
 +    set(_ggl_bin_libs ${COMP_ARG_LIBS})
 +    if("gg-sdk" IN_LIST _ggl_bin_libs)
 +      list(REMOVE_ITEM _ggl_bin_libs gg-sdk)
++      # $<TARGET_FILE:gg-sdk> does not carry usage requirements; keep headers.
++      target_include_directories(${bin_name}-bin PRIVATE
++        $<TARGET_PROPERTY:gg-sdk,INTERFACE_INCLUDE_DIRECTORIES>)
++      target_include_directories(${bin_name}-bin SYSTEM PRIVATE
++        $<TARGET_PROPERTY:gg-sdk,INTERFACE_SYSTEM_INCLUDE_DIRECTORIES>)
 +      target_link_libraries(
 +        ${bin_name}-bin
 +        PRIVATE
