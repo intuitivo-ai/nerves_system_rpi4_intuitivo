@@ -1,0 +1,16 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -350,7 +350,12 @@
+     if(NOT SRCS_LEN EQUAL 0)
+       target_link_libraries(${bin_name}-bin PRIVATE ${name})
+     endif()
+-    target_link_libraries(${bin_name}-bin PRIVATE ${COMP_ARG_LIBS})
++    if(CMAKE_CROSSCOMPILING)
++      target_link_libraries(${bin_name}-bin PRIVATE
++        -Wl,--start-group ${COMP_ARG_LIBS} -Wl,--end-group)
++    else()
++      target_link_libraries(${bin_name}-bin PRIVATE ${COMP_ARG_LIBS})
++    endif()
+     if(NOT has_argp)
+       target_link_libraries(${bin_name}-bin PRIVATE argp)
+     endif()
