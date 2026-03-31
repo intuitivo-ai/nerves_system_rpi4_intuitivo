@@ -27,10 +27,17 @@ GREENGRASS_LITE_DEPENDENCIES = \
 	libcgroup \
 	host-pkgconf
 
+# CMake IPO is patched off for cross-builds, but if TARGET_* still carry -flto,
+# object files inside static libs (e.g. libgg-sdk.a) can remain LTO bytecode; the
+# final link then reports undefined refs to gg_log / gg_* from gg-sdk.
 GREENGRASS_LITE_CONF_OPTS = \
 	-DGGL_SYSTEMD_SERVICE_BUILD=OFF \
 	-DBUILD_TESTING=OFF \
 	-DBUILD_EXAMPLES=OFF \
-	-DCMAKE_BUILD_TYPE=MinSizeRel
+	-DCMAKE_BUILD_TYPE=MinSizeRel \
+	-DCMAKE_C_FLAGS="$(TARGET_CFLAGS) -fno-lto" \
+	-DCMAKE_EXE_LINKER_FLAGS="$(TARGET_LDFLAGS) -fno-lto" \
+	-DCMAKE_SHARED_LINKER_FLAGS="$(TARGET_LDFLAGS) -fno-lto" \
+	-DCMAKE_MODULE_LINKER_FLAGS="$(TARGET_LDFLAGS) -fno-lto"
 
 $(eval $(cmake-package))
