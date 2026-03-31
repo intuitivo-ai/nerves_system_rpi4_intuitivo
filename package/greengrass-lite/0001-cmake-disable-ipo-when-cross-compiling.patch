@@ -1,0 +1,14 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -224,7 +224,11 @@ try_add_link_option_if(strip-all $<CONFIG:Release,MinSizeRel> LINKER:-s)
+ 
+ set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_DEBUG FALSE)
+-set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
++if(CMAKE_CROSSCOMPILING)
++  set(CMAKE_INTERPROCEDURAL_OPTIMIZATION FALSE)
++else()
++  set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
++endif()
+ 
+ # Additional optimization flags that GCC disables due to compile time cost
+ try_add_cflag_if(fipa-pta $<NOT:$<CONFIG:Debug>> -fipa-pta)
