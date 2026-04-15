@@ -1,0 +1,105 @@
+diff --git a/modules/ggipc-auth/src/auth.c b/modules/ggipc-auth/src/auth.c
+index 37728695..e0f18f68 100644
+--- a/modules/ggipc-auth/src/auth.c
++++ b/modules/ggipc-auth/src/auth.c
+@@ -8,17 +8,98 @@
+ #include <gg/log.h>
+ #include <gg/types.h>
+ #include <ggipc/auth.h>
++#include <errno.h>
++#include <fcntl.h>
++#include <stdio.h>
+ #include <string.h>
+ #include <sys/types.h>
++#include <unistd.h>
+ #include <systemd/sd-login.h>
+ 
++/// When sd_pid_get_unit is unavailable (stub / no systemd), verify the peer is
++/// `recipe-runner` with `-n` matching the claimed Greengrass component name.
++static GgError ggl_ipc_auth_validate_cmdline_recipe_runner(
++    pid_t pid, GgBuffer component_name
++) {
++    char path[64];
++    int len = snprintf(path, sizeof(path), "/proc/%d/cmdline", (int) pid);
++    if (len <= 0 || (size_t) len >= sizeof(path)) {
++        return GG_ERR_FAILURE;
++    }
++    int fd = open(path, O_RDONLY | O_CLOEXEC);
++    if (fd < 0) {
++        GG_LOGE("cmdline auth: open %s failed: %d.", path, errno);
++        return GG_ERR_FAILURE;
++    }
++    char buf[4096];
++    ssize_t n = read(fd, buf, sizeof(buf) - 1);
++    close(fd);
++    if (n <= 0) {
++        return GG_ERR_FAILURE;
++    }
++    buf[n] = '\0';
++
++    char *p = buf;
++    char *end = buf + n;
++    int saw_runner = 0;
++    while (p < end && *p) {
++        size_t arglen = strlen(p);
++        if (arglen == 0) {
++            p++;
++            continue;
++        }
++        const char *base = strrchr(p, '/');
++        base = base != NULL ? base + 1 : p;
++        if (strcmp(base, "recipe-runner") == 0) {
++            saw_runner = 1;
++        }
++        if (saw_runner && strcmp(p, "-n") == 0) {
++            char *next = p + arglen + 1;
++            if (next >= end || *next == '\0') {
++                return GG_ERR_FAILURE;
++            }
++            size_t next_len = strlen(next);
++            if (next_len != component_name.len) {
++                GG_LOGE(
++                    "cmdline auth: component length mismatch for pid %d.",
++                    (int) pid
++                );
++                return GG_ERR_FAILURE;
++            }
++            if (memcmp(next, component_name.data, component_name.len) != 0) {
++                GG_LOGE(
++                    "cmdline auth: component name mismatch for pid %d.",
++                    (int) pid
++                );
++                return GG_ERR_FAILURE;
++            }
++            GG_LOGD(
++                "IPC auth for pid %d accepted via recipe-runner cmdline (no systemd).",
++                (int) pid
++            );
++            return GG_ERR_OK;
++        }
++        p += arglen + 1;
++    }
++    GG_LOGE(
++        "cmdline auth: recipe-runner -n not found for pid %d.", (int) pid
++    );
++    return GG_ERR_FAILURE;
++}
++
+ GgError ggl_ipc_auth_validate_name(pid_t pid, GgBuffer component_name) {
+     char *unit_name = NULL;
+     int error = sd_pid_get_unit(pid, &unit_name);
+     GG_CLEANUP(cleanup_free, unit_name);
+     if ((error < 0) || (unit_name == NULL)) {
+-        GG_LOGE("Failed to look up service for pid %d.", pid);
+-        return GG_ERR_FAILURE;
++        GG_LOGD(
++            "sd_pid_get_unit failed for pid %d (err=%d); using cmdline fallback.",
++            (int) pid,
++            error
++        );
++        return ggl_ipc_auth_validate_cmdline_recipe_runner(
++            pid, component_name
++        );
+     }
+ 
+     GgBuffer name = gg_buffer_from_null_term(unit_name);

@@ -1,0 +1,147 @@
+#!/bin/sh
+# ggdeploymentd runs with minimal PATH; many Nerves images only ship BusyBox
+# multi-call (no separate basename/ln/head/grep binaries).
+export PATH="/bin:/usr/bin:/sbin:/usr/sbin"
+BB=""
+for _bb in /bin/busybox /usr/bin/busybox; do
+    if [ -x "$_bb" ]; then
+        BB=$_bb
+        break
+    fi
+done
+
+# systemctl shim for greengrass-lite on Nerves (no real systemd).
+# Handles the subset of systemctl commands that greengrass-lite uses:
+#   systemctl link <abs-path-to-unit>     -> symlink into unit dir
+#   systemctl start [--no-block] <unit>   -> parse ExecStart and run
+#   systemctl stop <unit>                 -> kill matching processes
+#   systemctl enable|disable|daemon-reload|reset-failed -> no-op
+
+UNIT_DIR="/tmp/systemd-units"
+if [ -n "$BB" ]; then
+    "$BB" mkdir -p "$UNIT_DIR"
+else
+    mkdir -p "$UNIT_DIR"
+fi
+
+# Strip --no-block if present (greengrass-lite passes it to start)
+ARGS=""
+NO_BLOCK=0
+CMD=""
+for arg in "$@"; do
+    case "$arg" in
+        --no-block) NO_BLOCK=1 ;;
+        *)
+            if [ -z "$CMD" ]; then
+                CMD="$arg"
+            else
+                ARGS="$ARGS $arg"
+            fi
+            ;;
+    esac
+done
+case "$ARGS" in
+    " "*) ARGS=${ARGS# } ;;
+esac
+
+case "$CMD" in
+    link)
+        SRC_PATH="$ARGS"
+        if [ -f "$SRC_PATH" ]; then
+            BASENAME=${SRC_PATH##*/}
+            DST="$UNIT_DIR/$BASENAME"
+            rm -f "$DST" 2>/dev/null
+            if [ -n "$BB" ]; then
+                "$BB" ln -sf "$SRC_PATH" "$DST" 2>/dev/null \
+                    || "$BB" cp -s "$SRC_PATH" "$DST" 2>/dev/null
+            else
+                ln -sf "$SRC_PATH" "$DST" 2>/dev/null \
+                    || cp -s "$SRC_PATH" "$DST" 2>/dev/null
+            fi
+        fi
+        ;;
+    start)
+        UNIT="$ARGS"
+        UNIT_FILE=""
+        if [ -f "$UNIT_DIR/$UNIT" ]; then
+            if [ -n "$BB" ]; then
+                UNIT_FILE=$("$BB" readlink -f "$UNIT_DIR/$UNIT")
+            else
+                UNIT_FILE=$(readlink -f "$UNIT_DIR/$UNIT")
+            fi
+        fi
+        if [ -z "$UNIT_FILE" ] || [ ! -f "$UNIT_FILE" ]; then
+            for d in /home/ggc_user /var/lib/greengrass /usr/lib/systemd/system /lib/systemd/system; do
+                if [ -f "$d/$UNIT" ]; then
+                    UNIT_FILE="$d/$UNIT"
+                    break
+                fi
+            done
+        fi
+        if [ -z "$UNIT_FILE" ] || [ ! -f "$UNIT_FILE" ]; then
+            echo "systemctl-shim: unit file $UNIT not found" >&2
+            exit 1
+        fi
+
+        EXEC_LINE=""
+        while IFS= read -r line || [ -n "$line" ]; do
+            case "$line" in
+                ExecStart=*)
+                    EXEC_LINE=${line#ExecStart=}
+                    break
+                    ;;
+            esac
+        done < "$UNIT_FILE"
+
+        if [ -z "$EXEC_LINE" ]; then
+            echo "systemctl-shim: no ExecStart in $UNIT_FILE" >&2
+            exit 1
+        fi
+
+        case "$UNIT" in
+            ggl.*.install.service|ggl.*.bootstrap.service)
+                /bin/sh -c "$EXEC_LINE"
+                ;;
+            *)
+                /bin/sh -c "$EXEC_LINE" &
+                ;;
+        esac
+        ;;
+    stop)
+        UNIT="$ARGS"
+        case "$UNIT" in
+            ggl.*.service)
+                COMPONENT=${UNIT#ggl.}
+                case "$COMPONENT" in
+                    *.install.service)
+                        COMPONENT=${COMPONENT%.install.service}
+                        ;;
+                    *.bootstrap.service)
+                        COMPONENT=${COMPONENT%.bootstrap.service}
+                        ;;
+                    *.run_startup.service)
+                        COMPONENT=${COMPONENT%.run_startup.service}
+                        ;;
+                    *.service)
+                        COMPONENT=${COMPONENT%.service}
+                        ;;
+                esac
+                if [ -n "$BB" ]; then
+                    "$BB" ps | "$BB" grep "recipe-runner.*$COMPONENT" | "$BB" grep -v grep | while read pid _; do
+                        kill "$pid" 2>/dev/null
+                    done
+                else
+                    ps | grep "recipe-runner.*$COMPONENT" | grep -v grep | while read pid _; do
+                        kill "$pid" 2>/dev/null
+                    done
+                fi
+                ;;
+        esac
+        ;;
+    enable|disable|daemon-reload|reset-failed)
+        ;;
+    *)
+        ;;
+esac
+
+exit 0

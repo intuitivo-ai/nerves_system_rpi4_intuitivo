@@ -1,0 +1,10 @@
+prefix=@CMAKE_INSTALL_PREFIX@
+exec_prefix=${prefix}
+libdir=${prefix}/@CMAKE_INSTALL_LIBDIR@
+includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
+
+Name: libsystemd
+Description: libsystemd stub for systems without systemd
+Version: 0.1.0
+Libs: -L${libdir} -lsystemd
+Cflags: -I${includedir}

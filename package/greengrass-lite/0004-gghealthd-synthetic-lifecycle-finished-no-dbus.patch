@@ -1,0 +1,30 @@
+diff --git a/modules/gghealthd/src/bus_server.c b/modules/gghealthd/src/bus_server.c
+index 5e03f13..b07669d 100644
+--- a/modules/gghealthd/src/bus_server.c
++++ b/modules/gghealthd/src/bus_server.c
+@@ -150,6 +150,25 @@ static GgError subscribe_to_lifecycle_completion(
+     }
+ 
+     ret = gghealthd_register_lifecycle_subscription(component_name, handle);
++    if (ret == GG_ERR_UNSUPPORTED) {
++        /* No systemd (e.g. Nerves): D-Bus lifecycle signals absent. Accept the
++         * subscription and report FINISHED so install can complete; the systemctl
++         * shim runs install ExecStart synchronously. */
++        GG_LOGI(
++            "No D-Bus; synthetic FINISHED for lifecycle sub %.*s",
++            (int) component_name.len,
++            component_name.data
++        );
++        ggl_sub_accept(handle, NULL, NULL);
++        ggl_sub_respond(
++            handle,
++            gg_obj_map(GG_MAP(
++                gg_kv(GG_STR("component_name"), *component_name_obj),
++                gg_kv(GG_STR("lifecycle_state"), gg_obj_buf(GG_STR("FINISHED")))
++            ))
++        );
++        return GG_ERR_OK;
++    }
+     if (ret != GG_ERR_OK) {
+         return ret;
+     }

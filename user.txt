@@ -1,1 +1,3 @@
 ggc_user -1 ggc_group -1 - /home/ggc_user /bin/sh root,sudo GGC User
+ggcore -1 ggcore -1 - /var/lib/greengrass /bin/sh - Greengrass Lite Core
+gg_component -1 gg_component -1 - /home/ggc_user /bin/sh - Greengrass Component Runner

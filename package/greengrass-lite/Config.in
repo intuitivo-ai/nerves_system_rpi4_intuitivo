@@ -1,0 +1,26 @@
+config BR2_PACKAGE_GREENGRASS_LITE
+	bool "greengrass-lite"
+	select BR2_PACKAGE_LIBSYSTEMD_STUB
+	select BR2_PACKAGE_LIBCURL
+	select BR2_PACKAGE_SQLITE
+	select BR2_PACKAGE_LIBYAML
+	select BR2_PACKAGE_LIBEVENT
+	select BR2_PACKAGE_LIBURIPARSER
+	select BR2_PACKAGE_LIBZIP
+	select BR2_PACKAGE_UTIL_LINUX
+	select BR2_PACKAGE_UTIL_LINUX_LIBUUID
+	select BR2_PACKAGE_CA_CERTIFICATES
+	select BR2_PACKAGE_OPENSSL
+	# Runtime: gghealthd invokes cgexec (docs/SETUP.md: libcgroup-tools >= 2.0).
+	select BR2_PACKAGE_LIBCGROUP
+	select BR2_PACKAGE_LIBCGROUP_TOOLS
+	help
+	  AWS IoT Greengrass nucleus lite - lightweight C runtime for
+	  constrained edge devices. Replaces the Java-based Greengrass
+	  nucleus with a <5MB RAM footprint.
+
+	  Buildroot library versions (e.g. 2024.02.x) typically exceed the
+	  minimums listed in aws-greengrass-lite docs/SETUP.md; libsystemd is
+	  satisfied via libsystemd-stub for Nerves (no real systemd).
+
+	  https://github.com/aws-greengrass/aws-greengrass-lite

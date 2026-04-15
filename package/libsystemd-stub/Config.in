@@ -1,0 +1,7 @@
+config BR2_PACKAGE_LIBSYSTEMD_STUB
+	bool "libsystemd-stub"
+	help
+	  Minimal stub library providing libsystemd symbols for building
+	  software that links against libsystemd on systems without systemd
+	  (e.g. Nerves with erlinit). All functions return error codes or
+	  are no-ops.
