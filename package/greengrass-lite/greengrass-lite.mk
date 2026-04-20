@@ -8,7 +8,7 @@
 # CMake enforces libcurl>=7.68 via pkg-config; other libs via pkg_search_module.
 ################################################################################
 
-GREENGRASS_LITE_VERSION = v2.4.0
+GREENGRASS_LITE_VERSION = v2.5.0
 GREENGRASS_LITE_SITE = $(call github,aws-greengrass,aws-greengrass-lite,$(GREENGRASS_LITE_VERSION))
 GREENGRASS_LITE_LICENSE = Apache-2.0
 GREENGRASS_LITE_LICENSE_FILES = LICENSE
