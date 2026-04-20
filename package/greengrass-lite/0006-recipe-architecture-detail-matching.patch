@@ -1,0 +1,166 @@
+diff --git a/docs/RECIPE_SUPPORT_CHANGES.md b/docs/RECIPE_SUPPORT_CHANGES.md
+index 5211d246..b94ba490 100644
+--- a/docs/RECIPE_SUPPORT_CHANGES.md
++++ b/docs/RECIPE_SUPPORT_CHANGES.md
+@@ -59,6 +59,11 @@ supported as mentioned in the
+ 
+ ### Nucleus Configuration
+ 
+-- Platform Override only supports `architecture.detail`, please refer known
+-  issues link
+-  [here](https://github.com/aws-greengrass/aws-greengrass-lite/issues).
++- Platform Override supports `architecture.detail` for both the cloud
++  `resolveComponentCandidates` request and **local manifest matching**. When a
++  recipe manifest includes `"architecture.detail"` in its `Platform` section,
++  Nucleus Lite compares it against the device's
++  `platformOverride.architecture.detail` from `config.yaml`. This allows
++  differentiating boards that share the same CPU architecture (e.g. two
++  different aarch64 boards). Manifests without `architecture.detail` act as
++  wildcards and match any device.
+diff --git a/modules/ggl-recipe/CMakeLists.txt b/modules/ggl-recipe/CMakeLists.txt
+index 472b3e14..85d1fdef 100644
+--- a/modules/ggl-recipe/CMakeLists.txt
++++ b/modules/ggl-recipe/CMakeLists.txt
+@@ -2,4 +2,4 @@
+ # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ # SPDX-License-Identifier: Apache-2.0
+ 
+-ggl_init_module(ggl-recipe LIBS gg-sdk ggl-yaml)
++ggl_init_module(ggl-recipe LIBS gg-sdk ggl-yaml core-bus core-bus-gg-config)
+diff --git a/modules/ggl-recipe/src/recipe.c b/modules/ggl-recipe/src/recipe.c
+index 53cfb75c..085a0d0d 100644
+--- a/modules/ggl-recipe/src/recipe.c
++++ b/modules/ggl-recipe/src/recipe.c
+@@ -18,6 +18,7 @@
+ #include <gg/object.h>
+ #include <gg/types.h>
+ #include <gg/vector.h>
++#include <ggl/core_bus/gg_config.h>
+ #include <ggl/recipe.h>
+ #include <ggl/yaml_decode.h>
+ #include <inttypes.h>
+@@ -331,7 +332,10 @@ GgBuffer get_current_architecture(void) {
+ // TODO: Refactor it
+ // NOLINTNEXTLINE(readability-function-cognitive-complexity)
+ static GgError manifest_selection(
+-    GgMap manifest_map, GgMap recipe_map, GgObject **selected_lifecycle_object
++    GgMap manifest_map,
++    GgMap recipe_map,
++    GgBuffer device_arch_detail,
++    GgObject **selected_lifecycle_object
+ ) {
+     GgObject *platform_obj;
+     if (gg_map_get(manifest_map, GG_STR("Platform"), &platform_obj)) {
+@@ -403,7 +407,39 @@ static GgError manifest_selection(
+                 // Then check if architecture is also supported
+                 if (((architecture.len == 0)
+                      || gg_buffer_eq(architecture, GG_STR("*"))
+-                     || gg_buffer_eq(architecture, curr_arch))) {
++                     || gg_buffer_eq(architecture, curr_arch)
++                     || (device_arch_detail.len > 0
++                         && gg_buffer_eq(
++                             architecture, device_arch_detail
++                         )))) {
++                    // Check architecture.detail for board-level matching
++                    GgObject *arch_detail_obj = NULL;
++                    if (gg_map_get(
++                            platform,
++                            GG_STR("architecture.detail"),
++                            &arch_detail_obj
++                        )) {
++                        if (gg_obj_type(*arch_detail_obj) == GG_TYPE_BUF) {
++                            GgBuffer manifest_detail
++                                = gg_obj_into_buf(*arch_detail_obj);
++                            if (manifest_detail.len > 0
++                                && !gg_buffer_eq(
++                                    manifest_detail, GG_STR("*")
++                                )) {
++                                if (device_arch_detail.len == 0
++                                    || !gg_buffer_eq(
++                                        manifest_detail, device_arch_detail
++                                    )) {
++                                    GG_LOGD(
++                                        "Skipping manifest: "
++                                        "architecture.detail does not match"
++                                    );
++                                    return GG_ERR_OK;
++                                }
++                            }
++                        }
++                    }
++
+                     if (gg_map_get(
+                             manifest_map,
+                             GG_STR("Lifecycle"),
+@@ -459,6 +495,35 @@ static GgError manifest_selection(
+     return GG_ERR_OK;
+ }
+ 
++static GgBuffer read_device_architecture_detail(void) {
++    static uint8_t buf[64];
++    static GgBuffer cached = { 0 };
++    static bool read_done = false;
++
++    if (read_done) {
++        return cached;
++    }
++    read_done = true;
++
++    GgArena alloc = gg_arena_init(GG_BUF(buf));
++    GgObject obj;
++    GgError ret = ggl_gg_config_read(
++        GG_BUF_LIST(
++            GG_STR("services"),
++            GG_STR("aws.greengrass.NucleusLite"),
++            GG_STR("configuration"),
++            GG_STR("platformOverride"),
++            GG_STR("architecture.detail")
++        ),
++        &alloc,
++        &obj
++    );
++    if (ret == GG_ERR_OK && gg_obj_type(obj) == GG_TYPE_BUF) {
++        cached = gg_obj_into_buf(obj);
++    }
++    return cached;
++}
++
+ GgError select_linux_lifecycle(
+     GgMap recipe_map, GgMap *out_selected_lifecycle_map
+ ) {
+@@ -474,6 +539,8 @@ GgError select_linux_lifecycle(
+     }
+     GgList manifests = gg_obj_into_list(*val);
+ 
++    GgBuffer device_arch_detail = read_device_architecture_detail();
++
+     GgObject *selected_lifecycle_object = NULL;
+     GG_LIST_FOREACH (elem, manifests) {
+         if (gg_obj_type(*elem) != GG_TYPE_MAP) {
+@@ -482,7 +549,7 @@ GgError select_linux_lifecycle(
+         }
+         GgMap elem_map = gg_obj_into_map(*elem);
+         GgError ret = manifest_selection(
+-            elem_map, recipe_map, &selected_lifecycle_object
++            elem_map, recipe_map, device_arch_detail, &selected_lifecycle_object
+         );
+         if (ret != GG_ERR_OK) {
+             return ret;
+@@ -549,6 +616,8 @@ GgError select_linux_manifest(
+     }
+     GgList manifests = gg_obj_into_list(*val);
+ 
++    GgBuffer device_arch_detail = read_device_architecture_detail();
++
+     GgObject *selected_lifecycle_object = NULL;
+     GG_LIST_FOREACH (elem, manifests) {
+         if (gg_obj_type(*elem) != GG_TYPE_MAP) {
+@@ -557,7 +626,7 @@ GgError select_linux_manifest(
+         }
+         GgMap elem_map = gg_obj_into_map(*elem);
+         GgError ret = manifest_selection(
+-            elem_map, recipe_map, &selected_lifecycle_object
++            elem_map, recipe_map, device_arch_detail, &selected_lifecycle_object
+         );
+         if (ret != GG_ERR_OK) {
+             return ret;
